@@ -1,52 +1,45 @@
 #!/bin/bash
 set -e
 
-echo "=== IPTS Surface Touchscreen Fix ==="
+echo "=== IPTS Surface Touchscreen Fix for Linux kernel 7+ ==="
 echo ""
 
-# Check we're running as root
+KERNEL=$(uname -r)
+SCRIPT_DIR=$(dirname $(realpath $0))
+MODULE_DIR=/lib/modules/$KERNEL/kernel/drivers/hid
+
 if [ "$EUID" -ne 0 ]; then
     echo "Please run as root (sudo ./install.sh)"
     exit 1
 fi
 
-KERNEL=$(uname -r)
-BUILD_DIR=/tmp/ipts-build
-MODULE_DIR=/lib/modules/$KERNEL/kernel/drivers/hid
+if [ -f "$MODULE_DIR/ipts.ko" ]; then
+    echo "IPTS module already installed for kernel $KERNEL, skipping build."
+else
+    echo "[1/3] Installing dependencies..."
+    apt install -y build-essential linux-headers-$KERNEL
 
-echo "[1/6] Installing dependencies..."
-apt install -y git build-essential linux-headers-$KERNEL
+    echo "[2/3] Building IPTS module..."
+    cd $SCRIPT_DIR
+    make -C /lib/modules/$KERNEL/build M=$SCRIPT_DIR \
+        "obj-m=ipts.o" \
+        "ipts-objs=cmd.o control.o eds1.o eds2.o hid.o main.o mei.o receiver.o resources.o thread.o" \
+        modules
 
-echo "[2/6] Fetching IPTS driver source from linux-surface..."
-rm -rf $BUILD_DIR
-git clone https://github.com/linux-surface/kernel.git --depth=1 --filter=blob:none --sparse $BUILD_DIR
-cd $BUILD_DIR
-git sparse-checkout disable
-
-echo "[3/6] Locating IPTS driver..."
-IPTS_DIR=$(find $BUILD_DIR -path "*/drivers/hid/ipts" -type d)
-if [ -z "$IPTS_DIR" ]; then
-    echo "ERROR: Could not find IPTS driver in linux-surface kernel tree"
-    exit 1
+    echo "[3/3] Installing..."
+    mkdir -p $MODULE_DIR
+    cp $SCRIPT_DIR/ipts.ko $MODULE_DIR/
+    depmod -a
+    echo 'ipts' > /etc/modules-load.d/ipts.conf
+    update-initramfs -u
 fi
-cd $IPTS_DIR
 
-echo "[4/6] Applying patch..."
-SCRIPT_DIR=$(dirname $(realpath $0))
-patch -p5 < $SCRIPT_DIR/0001-fix-ipts-report-size-for-surface-pro-firmware.patch
-
-echo "[5/6] Building module..."
-make -C /lib/modules/$KERNEL/build M=$IPTS_DIR \
-    "obj-m=ipts.o" \
-    "ipts-objs=cmd.o control.o eds1.o eds2.o hid.o main.o mei.o receiver.o resources.o thread.o" \
-    modules
-
-echo "[6/6] Installing..."
-cp $IPTS_DIR/ipts.ko $MODULE_DIR/
-depmod -a
-echo 'ipts' > /etc/modules-load.d/ipts.conf
-update-initramfs -u
+# Add iommu=pt if not present
+if ! grep -q "iommu=pt" /etc/default/grub; then
+    sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="\(.*\)"/GRUB_CMDLINE_LINUX_DEFAULT="\1 iommu=pt"/' /etc/default/grub
+    update-grub
+    echo "NOTE: Reboot required for iommu=pt to take effect."
+fi
 
 echo ""
-echo "Done! Please reboot to load the module."
-echo "If touchscreen doesn't work after reboot, make sure iommu=pt is set in your kernel boot parameters."
+echo "Done! Reboot to activate touch support."
