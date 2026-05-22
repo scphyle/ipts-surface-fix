@@ -45,3 +45,4 @@ fi
 
 echo ""
 echo "Done! Reboot to activate touch support."
+systemctl mask iptsd@* 2>/dev/null || true
