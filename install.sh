@@ -6,14 +6,14 @@ echo ""
 
 KERNEL=$(uname -r)
 SCRIPT_DIR=$(dirname $(realpath $0))
-MODULE_DIR=/lib/modules/$KERNEL/kernel/drivers/hid
 
 if [ "$EUID" -ne 0 ]; then
     echo "Please run as root (sudo ./install.sh)"
     exit 1
 fi
 
-if [ -f "$MODULE_DIR/ipts.ko" ]; then
+if [ -f "/usr/lib/modules/$KERNEL/kernel/drivers/hid/ipts.ko" ] && \
+   [ -f "/lib/modules/$KERNEL/kernel/drivers/hid/ipts.ko" ]; then
     echo "IPTS module already installed for kernel $KERNEL, skipping build."
 else
     echo "[1/3] Installing dependencies..."
@@ -27,8 +27,10 @@ else
         modules
 
     echo "[3/3] Installing..."
-    mkdir -p $MODULE_DIR
-    cp $SCRIPT_DIR/ipts.ko $MODULE_DIR/
+    mkdir -p /usr/lib/modules/$KERNEL/kernel/drivers/hid
+    mkdir -p /lib/modules/$KERNEL/kernel/drivers/hid
+    cp $SCRIPT_DIR/ipts.ko /usr/lib/modules/$KERNEL/kernel/drivers/hid/
+    cp $SCRIPT_DIR/ipts.ko /lib/modules/$KERNEL/kernel/drivers/hid/
     depmod -a
     echo 'ipts' > /etc/modules-load.d/ipts.conf
     update-initramfs -u
